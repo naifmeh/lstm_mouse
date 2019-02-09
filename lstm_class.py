@@ -1,3 +1,6 @@
+import tensorflow as tf
+import numpy as np
+
 def batch_producer(raw_data, batch_size, num_steps):
     """
     """
@@ -58,7 +61,65 @@ class Model(object):
             average_accross_batch=False
         )
 
+        # loss = tf.losses.mean_squared_error(
+        #     logits,
+        #     self.input_obj.targets,
+        #     tf.ones([self.batch_size, self.num_steps], dtype=tf.float32),
+        # )
         self.cost = tf.reduce_sum(loss)
+        
+        self.relu_out = tf.nn.relu(tf.reshape(logits, [-1, coord_size]))
+        #self.softmax_out = tf.nn.softmax(tf.reshape(logits, [-1, coord_size]))
+        self.predict = tf.cast(self.relu_out, tf.int32)
+        correct_prediction = tf.equal(self.predict, tf.Reshape(self.input_obj.targets, [-1]))
+        self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
+        if not is_training:
+            return
+        
+        self.learning_rate = tf.Variable(0.0, trainable=False)
+        tvars = tf.trainable_variables()
+        grads, _ = tf.clip_by_global_norm(tf.gradient(self.cost, tvars), 5)
+        optimizer = tf.train.AdamOtimizer(self.learning_rate)
+        self.train_op = optimizer.apply_gradients(
+            zip(grads, tvars),
+            global_step=tf.contrib.framework.get_or_create_global_step())
+        )
+
+        self.new_lr = tf.placeholder(tf.float32, shape=[])
+        self.lr_update = tf.assign(self.learning_rate, self.new_lr)
+
+    def assign_lr(self, session, lr_value):
+        session.run(self.lr_update)
+
+def train(train_data, num_epochs, num_layer, batch_size, model_save_name,
+         learning_rate=1.0, max_lr_epoch=10, lr_decay=0.93):
+
+    training_input = Input(btach_size=batch_size, num_steps=15, data=train_data)
+    model = Model(training_input, is_training=True, hidden_size=128, num_layers=num_layer)
+    init_op = tf.global_variables_initializer()
+    orig_decay = lr_decay
+    with tf.Session() as sess:
+        sess.run([init_op])
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(coord=coord)
+        saver=tf.train.Saver()
+        for epoch in range(num_epoch):
+            new_lr_decay = orig_decay ** max(epoch + 1 - max_lr_epoch, 0.0)
+            model.assign_lr(sess, learning_rate * new_lr_decay)
+            current_state = np.zeros((num_layers, 2, batch_size, model.hidden_size))
+            for step in range(training_input.epoch_size):
+                if step % 50 != 0:
+                    cost, _, current_state = sess.run([model.cost, model.train_op, model.state])
+                else:
+                    cost, _, current_state, acc = sess.run([model.cost, model.train_op, model.state, model.accuracy])
+                    print("Epoch {}, Step {}, cost {:.3f}, accuracy: {:.3f}".format(epoch, step, cost, acc))
+            
+            saver.save(sess, ".\\"+model_save_name, global_step=epoch)
+        saver.save(sess, '.\\'+model_save_name+'-final')
+        coord.request_stop()
+        coord.join(threads)       
+        
         
 
 
