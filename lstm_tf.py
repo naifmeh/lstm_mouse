@@ -48,7 +48,7 @@ class Model(object):
 
         self.dense = tf.contrib.layers.fully_connected(
             output,
-            1,
+            2,
             activation_fn=tf.nn.relu,
             weights_initializer=tf.glorot_uniform_initializer,
         )
