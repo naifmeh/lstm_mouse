@@ -4,8 +4,7 @@ import numpy as np
 def batch_producer(raw_data, batch_size, num_steps):
     """
     """
-
-
+    # TODO: Write this function
 
 class Input(object):
     def __init__(self, batch_size, num_steps, data):
@@ -47,31 +46,40 @@ class Model(object):
 
         output = tf.reshape(output, [-1, hidden_size]) #Second axis reshaping, the rest is up to tf
 
-        softmax_w = tf.Variable(tf.random_uniform([hidden_size, coord_size], -init_scale, init_scale))
-        softmax_b = tf.Variable(tf.random_uniform([coord_size], -init_scale, init_scale))
-        logits = tf.nn.xw_plus_b(output, softmax_w, softmax_b)
-
-        logits = tf.reshape(logits, [self.batch_size, self.num_steps, coord_size])
-
-        loss = tf.contrib.seq2seq.sequence_loss(
-            logits,
-            self.input_obj.targets,
-            tf.ones([self.batch_size, self.num_steps], dtype=tf.float32),
-            average_accross_timesteps=True, #HIghly time related data but not sure of this choice tho
-            average_accross_batch=False
+        self.dense = tf.contrib.layers.fully_connected(
+            output,
+            1,
+            activation_fn=tf.nn.relu,
+            weights_initializer=tf.glorot_uniform_initializer,
         )
 
-        # loss = tf.losses.mean_squared_error(
-        #     logits,
+       
+
+        # softmax_w = tf.Variable(tf.random_uniform([hidden_size, coord_size], -init_scale, init_scale))
+        # softmax_b = tf.Variable(tf.random_uniform([coord_size], -init_scale, init_scale))
+        # logits = tf.nn.xw_plus_b(output, softmax_w, softmax_b)
+
+        # logits = tf.reshape(logits, [self.batch_size, self.num_steps, coord_size])
+
+        # loss = tf.contrib.seq2seq.sequence_loss(
+        #     self.relu_out,
         #     self.input_obj.targets,
         #     tf.ones([self.batch_size, self.num_steps], dtype=tf.float32),
+        #     average_accross_timesteps=True, #HIghly time related data but not sure of this choice tho
+        #     average_accross_batch=False
         # )
+
+        loss = tf.losses.mean_squared_error(
+            dense,
+            self.input_obj.targets,
+            tf.ones([self.batch_size, self.num_steps], dtype=tf.float32),
+        )
         self.cost = tf.reduce_sum(loss)
         
-        self.relu_out = tf.nn.relu(tf.reshape(logits, [-1, coord_size]))
-        #self.softmax_out = tf.nn.softmax(tf.reshape(logits, [-1, coord_size]))
-        self.predict = tf.cast(self.relu_out, tf.int32)
-        correct_prediction = tf.equal(self.predict, tf.Reshape(self.input_obj.targets, [-1]))
+        # self.relu_out = tf.nn.relu(tf.reshape(logits, [-1, coord_size]))
+        # #self.softmax_out = tf.nn.softmax(tf.reshape(logits, [-1, coord_size]))
+        # self.predict = tf.cast(self.relu_out, tf.int32)
+        correct_prediction = tf.equal(self.dense, tf.reshape(self.input_obj.targets, [-1]))
         self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
         if not is_training:
@@ -120,8 +128,34 @@ def train(train_data, num_epochs, num_layer, batch_size, model_save_name,
         coord.request_stop()
         coord.join(threads)       
         
-        
+def test(model_path, test_data):
+    test_input = Input(batch_size=10, num_steps=35, data=test_data)
+    model = Model(test_input, is_training=False, hidden_size=128, num_layers=2)
+    saver = tf.train.Saver()
+    with tf.Session() as sess:
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(coord=coord)
+        current_state = np.zeros((num_layers, 2, model.batch_size, model.hidden_size))
 
+        saver.restore(sess, model_path)
+
+        num_acc_batches = 20
+        check_batch_idx = 15
+        acc_check_thresh = 5
+        accuracy = 0
+        for batch in range(num_acc_batches):
+            if batch == check_batch_idx:
+                true_val, pred, current_state, acc = sess.run([model.input_obj.targets, model.dense, model.state, model.accuracy])
+                print('Predicted {}'.format(pred))
+                print('True value {}'.format(true_val))
+            else:
+                acc, current_state = sess.run([model.accuracy, model.state])
+            
+            if batch >= acc_check_thresh:
+                accuracy += acc
+        print("Average accuracy is : {:.3f}".format(accuracy/(num_acc_batches-acc_check_thresh)))
+        coord.request_stop()
+        coord.join(threads)
 
 
         
